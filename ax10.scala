@@ -49,10 +49,6 @@ object Hasher {
   ): RIO[Hasher, Boolean] =
     ZIO.serviceWithZIO[Hasher](_.validate(message, key, hash))
 
-  def specForKey512(key: String): ZLayer[Any, Throwable, SecretKeySpec] = {
-    ZIO.effect(new SecretKeySpec(key.getBytes("UTF-8"), "HmacSHA512")).toLayer
-  }
-
   // Reference implementation layer
   val layer: URLayer[Mac, Hasher] = (HasherLive(_)).toLayer
 
