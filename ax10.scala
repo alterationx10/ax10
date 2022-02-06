@@ -89,7 +89,7 @@ object HashApp extends ZIOAppDefault {
               args.size == 1 || args.size == 2,
               (),
               new Exception(
-                "This app requires one argument to hash, and 2 to validate"
+                "This app requires 1 argument to hash, and 2 to validate"
               )
             )
     // When we've been passed 1 arg, hash it
@@ -105,7 +105,7 @@ object HashApp extends ZIOAppDefault {
             }
   } yield ExitCode.success
 
-  // We call .orDie here to give up, instead of having an error channel,
+  // We call .orDie here to give up, instead of having an something in the error channel,
   // because if we can't construct our dependencies, our app isn't going to
   // work anyway.
   val appLayer: ZLayer[Any, Nothing, Hasher] = {
