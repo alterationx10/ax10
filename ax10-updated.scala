@@ -1,7 +1,5 @@
-//> using scala "3.1.1"
-//> using lib "dev.zio::zio:2.0.0-RC2"
-
-// ax10-updated.scala has this example updates for ZIO 2.0.0
+//> using scala "3.1.3"
+//> using lib "dev.zio::zio:2.0.0"
 
 import zio._
 import zio.Console._
@@ -10,6 +8,7 @@ import javax.crypto.Mac
 import java.util.Base64
 import javax.crypto.spec.SecretKeySpec
 import javax.crypto.SecretKey
+import java.io.IOException
 
 // Hash-based message authentication code
 trait Hasher {
@@ -52,7 +51,7 @@ object Hasher {
     ZIO.serviceWithZIO[Hasher](_.validate(message, key, hash))
 
   // Reference implementation layer
-  val layer: URLayer[Mac, Hasher] = (HasherLive(_)).toLayer
+  val layer: URLayer[Mac, Hasher] = ZLayer.fromFunction(HasherLive.apply _)
 
 }
 
@@ -60,17 +59,19 @@ object Hasher {
 object HashHelper {
 
   def hmac512: ZLayer[SecretKeySpec, Throwable, Mac] = {
-    (
+    ZLayer.fromZIO(
       for {
-        mac     <- ZIO.effect(Mac.getInstance("HmacSHA512"))
+        mac     <- ZIO.attempt(Mac.getInstance("HmacSHA512"))
         keySpec <- ZIO.service[SecretKeySpec]
-        _       <- ZIO.effect(mac.init(keySpec))
+        _       <- ZIO.attempt(mac.init(keySpec))
       } yield mac
-    ).toLayer
+    )
   }
 
   def specForKey512(key: String): ZLayer[Any, Throwable, SecretKeySpec] = {
-    ZIO.effect(new SecretKeySpec(key.getBytes("UTF-8"), "HmacSHA512")).toLayer
+    ZLayer.fromZIO(
+      ZIO.attempt(new SecretKeySpec(key.getBytes("UTF-8"), "HmacSHA512"))
+    )
   }
 
   def base64Encode(bytes: Array[Byte]): Task[String] =
@@ -83,7 +84,7 @@ object HashApp extends ZIOAppDefault {
   val superSecretKey: String = "abc123"
 
   // The overall flow of our program
-  val program: ZIO[ZIOAppArgs & (Hasher & Console), Throwable, ExitCode] = for {
+  val program: ZIO[ZIOAppArgs & Hasher, Throwable, ExitCode] = for {
     // Read the arguments
     args <- ZIOAppArgs.getArgs
     // Make sure we've been passed only 1 or 2 args
@@ -100,7 +101,7 @@ object HashApp extends ZIOAppDefault {
             }
     // When we've been passed 2 args, verify it.
     _    <- ZIO.when(args.size == 2) {
-              ZIO.ifM(Hasher.validate(args.head, superSecretKey, args.last))(
+              ZIO.ifZIO(Hasher.validate(args.head, superSecretKey, args.last))(
                 onTrue = printLine("valid"),
                 onFalse = printLine("invalid")
               )
@@ -116,8 +117,17 @@ object HashApp extends ZIOAppDefault {
     ) >>> HashHelper.hmac512) >>> Hasher.layer
   }.orDie
 
-  def run = program
-    .catchAll(err => printLine(err.getMessage))
-    .provideSomeLayer(appLayer)
+  // ZIOAppDefault will likely provide the following type signature for auto-complete
+  //   override def run: ZIO[Any & (ZIOAppArgs & Scope), Any, Any]
+  //   Which flows from ZIOApp
+  //   def run: ZIO[Environment with ZIOAppArgs with Scope, Any, Any],
+  //   but, you can probably trim that and remove things you're not using (i.e. Scope here)
+
+  // .provideSomeLayer[SomeDep](...allTheOtherDeps) will build a layer that provides everything but SomeDep.
+  // Here, that means the run of ZioAppDefault is going to provide ZIOAppArgs for us.
+  override def run: ZIO[ZIOAppArgs, Any, Any] =
+    program
+      .catchAll(err => printLine(err.getMessage))
+      .provideSomeLayer[ZIOAppArgs](appLayer)
 
 }
